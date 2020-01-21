@@ -33,6 +33,10 @@ typedef struct
     ARM_I2C_SignalEvent_t event;
     uint32_t flags;
     ARM_I2C_STATUS status;
+    uint8_t *data;
+    uint32_t dataCnt;
+    uint32_t bytesTransfered;
+    bool isPending;
 } I2C_Info;
 
 typedef const struct
@@ -256,10 +260,16 @@ int32_t ARM_I2Cx_MasterTransmit(I2C_Resource *res, uint32_t addr, const uint8_t 
     if (res->info->status.busy)
         return ARM_DRIVER_ERROR_BUSY;
 
-    //Set status to mater transmit
+    //Set status to master transmit
     res->info->status.busy = 1;
     res->info->status.mode = 1;
     res->info->status.direction = 0;
+
+    //Copy transfer info
+    res->info->data = (uint8_t*) data;
+    res->info->dataCnt = num;
+    res->info->bytesTransfered = 0;
+    res->info->isPending =xfer_pending;
 
     //Set slave device address
     res->twi->TWI_MMR = TWI_MMR_DADR(addr);
@@ -282,30 +292,92 @@ int32_t ARM_I2Cx_MasterTransmit(I2C_Resource *res, uint32_t addr, const uint8_t 
         //Load data
         res->twi->TWI_THR = data[0];
 
-        //Send stop command
-        res->twi->TWI_CR = TWI_CR_STOP;
+        if (!xfer_pending)
+        {
+            //Send stop command
+            res->twi->TWI_CR = TWI_CR_STOP;
+        }
+
+        //Enable transmit holding register ready interrupt
+        res->twi->TWI_IER = TWI_IER_TXRDY;
     }
 
-    //Enable completion interrupt
-    res->twi->TWI_IER = TWI_IER_TXCOMP;
 
     return ARM_DRIVER_OK;
 }
 
 int32_t ARM_I2Cx_MasterReceive(I2C_Resource *res, uint32_t addr, uint8_t *data, uint32_t num, bool xfer_pending)
 {
+    //Check if I2C is powered
+    if ((res->info->flags & I2C_FLAG_POWERED) == 0)
+        return ARM_DRIVER_ERROR;
+
+    //Check if I2C is not busy
+    if (res->info->status.busy)
+        return ARM_DRIVER_ERROR_BUSY;
+
+    //Set status to master transmit
+    res->info->status.busy = 1;
+    res->info->status.mode = 1;
+    res->info->status.direction = 1;
+
+    //Copy transfer info
+    res->info->data = (uint8_t*) data;
+    res->info->dataCnt = num;
+    res->info->bytesTransfered = 0;
+    res->info->isPending = xfer_pending;
+
+    //Set slave device address
+    res->twi->TWI_MMR = TWI_MMR_DADR(addr) | TWI_MMR_MREAD;
+
+    //Set master mode
+    res->twi->TWI_CR |= TWI_CR_MSEN | TWI_CR_SVDIS;
+
+    if (num > 2)
+    {
+        //Setup DMA channel
+        res->twi->TWI_RPR = (uint32_t) data;
+        res->twi->TWI_RCR = num - 2;
+
+        //Enable DMA channel and interrupt
+        res->twi->TWI_PTCR = TWI_PTCR_RXTEN;
+        res->twi->TWI_IER = TWI_IER_ENDRX | TWI_IER_NACK;
+
+        //Start transfer
+        res->twi->TWI_CR = TWI_CR_START;
+    }
+    else
+    {
+        if (num == 1)
+            //Start and stop read transfer
+            res->twi->TWI_CR = TWI_CR_START | TWI_CR_STOP;
+        else
+            //Start read transfer
+            res->twi->TWI_CR = TWI_CR_START;
+
+        //Enable interrupts
+        res->twi->TWI_IER = TWI_IER_RXRDY | TWI_IER_NACK;
+    }
+
+
+    return ARM_DRIVER_OK;
 }
 
 int32_t ARM_I2Cx_SlaveTransmit(I2C_Resource *res, const uint8_t *data, uint32_t num)
 {
+    //Currently only master mode supported
+    return ARM_DRIVER_ERROR_UNSUPPORTED;
 }
 
 int32_t ARM_I2Cx_SlaveReceive(I2C_Resource *res, uint8_t *data, uint32_t num)
 {
+    //Currently only master mode supported
+    return ARM_DRIVER_ERROR_UNSUPPORTED;
 }
 
 int32_t ARM_I2Cx_GetDataCount(I2C_Resource *res)
 {
+    return res->info->bytesTransfered;
 }
 
 int32_t ARM_I2Cx_Control(I2C_Resource *res, uint32_t control, uint32_t arg)
@@ -363,13 +435,20 @@ ARM_I2C_STATUS ARM_I2Cx_GetStatus(I2C_Resource *res)
 
 void ARM_I2Cx_Handler(I2C_Resource *res)
 {
-    if (res->twi->TWI_SR & TWI_SR_TXCOMP)
+    if (res->twi->TWI_SR & TWI_SR_TXRDY)
     {
         //Update status
         res->info->status.busy = 0;
 
+        //Disable interrupt
+        res->twi->TWI_IDR = TWI_IDR_TXRDY;
+
+        res->info->bytesTransfered = res->info->dataCnt;
+
         //Raise transfer complete event
-        res->info->event(ARM_I2C_EVENT_TRANSFER_DONE);
+        if (res->info->event)
+            res->info->event(ARM_I2C_EVENT_TRANSFER_DONE);
+
     }
     else if (res->twi->TWI_SR & TWI_SR_ENDTX)
     {
@@ -377,10 +456,52 @@ void ARM_I2Cx_Handler(I2C_Resource *res)
         res->twi->TWI_PTCR = TWI_PTCR_TXTDIS;
 
         //Send last byte
-        res->twi->TWI_THR = ;
+        res->twi->TWI_THR = res->info->data[res->info->dataCnt - 1];
 
-        //Send stop byte
-        res->twi->TWI_CR = TWI_CR_STOP;
+        res->info->bytesTransfered = res->info->dataCnt - 1;
+
+        //Disable DMA interrupt
+        res->twi->TWI_IDR = TWI_IDR_ENDTX;
+
+        //Enable transfer ready interrupt
+        res->twi->TWI_IER = TWI_IER_TXRDY;
+
+        //Send stop byte if transfer is not pending
+        if (!res->info->isPending)
+            res->twi->TWI_CR = TWI_CR_STOP;
+
+    }
+    else if (res->twi->TWI_SR & TWI_SR_ENDRX)
+    {
+        //Disable DMA channel
+        res->twi->TWI_PTCR = TWI_PTCR_RXTDIS;
+
+        //Set number of bytes read
+        res->info->bytesTransfered = res->info->dataCnt - 2;
+    }
+    else if (res->twi->TWI_SR & TWI_SR_RXRDY)
+    {
+        if (res->info->bytesTransfered == res->info->dataCnt - 2)
+        {
+            if (!res->info->isPending)
+                //Set stop bit
+                res->twi->TWI_CR = TWI_CR_STOP;
+
+            //Read penultimate byte
+            res->info->data[res->info->dataCnt - 2] = res->twi->TWI_RHR;
+            res->info->bytesTransfered = res->info->dataCnt - 1;
+        }
+        else
+        {
+            //Read last byte
+            res->info->data[res->info->dataCnt - 1] = res->twi->TWI_RHR;
+            res->info->bytesTransfered = res->info->dataCnt;
+
+            //Raise transfer complete event
+            if (res->info->event)
+                res->info->event(ARM_I2C_EVENT_TRANSFER_DONE);
+        }
+
     }
 }
 
