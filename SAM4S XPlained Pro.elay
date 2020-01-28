@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes" ?>
 <EmBitz_layout_file>
 	<ActiveTarget name="Release" />
-	<File name="config\FreeRTOSConfig.h" open="1" top="0" tabpos="1" split="0" active="1" splitpos="0" zoom_1="0" zoom_2="0">
+	<File name="config\FreeRTOSConfig.h" open="1" top="0" tabpos="2" split="0" active="1" splitpos="0" zoom_1="0" zoom_2="0">
 		<Cursor>
-			<Cursor1 position="4909" topLine="88" />
+			<Cursor1 position="4909" topLine="74" />
 		</Cursor>
 	</File>
-	<File name="config\RTE_Device.h" open="1" top="0" tabpos="4" split="0" active="1" splitpos="0" zoom_1="0" zoom_2="0">
+	<File name="config\RTE_Device.h" open="1" top="0" tabpos="5" split="0" active="1" splitpos="0" zoom_1="0" zoom_2="0">
 		<Cursor>
 			<Cursor1 position="145" topLine="0" />
 		</Cursor>
@@ -16,9 +16,9 @@
 			<Cursor1 position="11862" topLine="143" />
 		</Cursor>
 	</File>
-	<File name="device\system_sam4s.c" open="0" top="0" tabpos="3" split="0" active="1" splitpos="0" zoom_1="0" zoom_2="0">
+	<File name="device\system_sam4s.c" open="1" top="1" tabpos="1" split="0" active="1" splitpos="0" zoom_1="0" zoom_2="0">
 		<Cursor>
-			<Cursor1 position="4663" topLine="98" />
+			<Cursor1 position="7522" topLine="0" />
 		</Cursor>
 	</File>
 	<File name="FreeRTOS\portable\GCC\ARM_CM3\portmacro.h" open="0" top="0" tabpos="0" split="0" active="1" splitpos="0" zoom_1="0" zoom_2="0">
@@ -31,7 +31,7 @@
 			<Cursor1 position="4257" topLine="104" />
 		</Cursor>
 	</File>
-	<File name="FreeRTOS\tasks.c" open="1" top="0" tabpos="2" split="0" active="1" splitpos="0" zoom_1="0" zoom_2="0">
+	<File name="FreeRTOS\tasks.c" open="1" top="0" tabpos="3" split="0" active="1" splitpos="0" zoom_1="0" zoom_2="0">
 		<Cursor>
 			<Cursor1 position="112243" topLine="3322" />
 		</Cursor>
@@ -41,7 +41,7 @@
 			<Cursor1 position="97" topLine="0" />
 		</Cursor>
 	</File>
-	<File name="src\main.cpp" open="1" top="0" tabpos="3" split="0" active="1" splitpos="0" zoom_1="0" zoom_2="0">
+	<File name="src\main.cpp" open="1" top="0" tabpos="4" split="0" active="1" splitpos="0" zoom_1="0" zoom_2="0">
 		<Cursor>
 			<Cursor1 position="616" topLine="6" />
 		</Cursor>
@@ -51,22 +51,22 @@
 			<Cursor1 position="1382" topLine="36" />
 		</Cursor>
 	</File>
-	<File name="system\Driver_MCI.c" open="1" top="0" tabpos="8" split="0" active="1" splitpos="0" zoom_1="0" zoom_2="0">
+	<File name="system\Driver_MCI.c" open="1" top="0" tabpos="9" split="0" active="1" splitpos="0" zoom_1="0" zoom_2="0">
 		<Cursor>
 			<Cursor1 position="16" topLine="0" />
 		</Cursor>
 	</File>
-	<File name="system\Driver_TWI.cpp" open="1" top="0" tabpos="6" split="0" active="1" splitpos="0" zoom_1="0" zoom_2="0">
+	<File name="system\Driver_TWI.cpp" open="1" top="0" tabpos="7" split="0" active="1" splitpos="0" zoom_1="0" zoom_2="0">
 		<Cursor>
-			<Cursor1 position="6524" topLine="234" />
+			<Cursor1 position="7866" topLine="301" />
 		</Cursor>
 	</File>
-	<File name="system\Driver_TWI.h" open="1" top="1" tabpos="5" split="0" active="1" splitpos="0" zoom_1="0" zoom_2="0">
+	<File name="system\Driver_TWI.h" open="1" top="0" tabpos="6" split="0" active="1" splitpos="0" zoom_1="0" zoom_2="0">
 		<Cursor>
-			<Cursor1 position="1548" topLine="38" />
+			<Cursor1 position="3007" topLine="49" />
 		</Cursor>
 	</File>
-	<File name="system\Driver_USART.c" open="1" top="0" tabpos="7" split="0" active="1" splitpos="0" zoom_1="0" zoom_2="0">
+	<File name="system\Driver_USART.c" open="1" top="0" tabpos="8" split="0" active="1" splitpos="0" zoom_1="0" zoom_2="0">
 		<Cursor>
 			<Cursor1 position="671" topLine="6" />
 		</Cursor>

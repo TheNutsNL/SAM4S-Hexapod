@@ -50,7 +50,7 @@ namespace System
         class TWI
         {
         public:
-            enum class State
+            enum class State : uint8_t
             {
                 UNINITIALIZED = 0,
                 INITIALIZED = 1,
@@ -60,24 +60,29 @@ namespace System
             };
 
 
+            enum class Error : uint8_t
+            {
+                NONE = 0,
+                ARBITRATION_LOST = 1,
+                NOT_ACKNOWLEDGE = 2,
+            };
+
             struct Status
             {
-                State state : 4;
-                bool generalCall : 1;
-                bool arbitrationLost : 1;
-                bool busError : 1;
+                State state : 8;
+                Error error : 8;
+                //bool generalCall : 1;
             };
 
             enum class Event
             {
                 TRANSFER_DONE,
-                TRANSFER_INCOMPLETE,
-                SLAVE_TRANSMIT,
-                SLAVE_RECEIVE,
-                ADDRESS_NACK,
-                GENERAL_CALL,
+                //SLAVE_TRANSMIT,
+                //SLAVE_RECEIVE,
+                NOT_ACKNOWLEDGE,
+                //GENERAL_CALL,
                 ARBITRATION_LOST,
-                BUS_ERROR,
+                //BUS_ERROR,
             };
 
             struct InternalAddress

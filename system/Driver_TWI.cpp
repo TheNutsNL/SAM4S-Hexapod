@@ -96,6 +96,7 @@ Result TWI::Uninitialize() const
 
         //Set state to uninitialized
         _info.status.state = State::UNINITIALIZED;
+        _info.status.error = Error::NONE;
     }
 
     return DRIVER_OK;
@@ -139,6 +140,7 @@ Result TWI::PowerControl(PowerState state) const
             NVIC_EnableIRQ(_irq);
 
             _info.status.state = State::IDLE;
+            _info.status.error = Error::NONE;
         }
         break;
 
@@ -167,6 +169,7 @@ Result TWI::MasterWrite(uint32_t address,  InternalAddress internalAddress, void
 
     //Set status to master transmit
     _info.status.state = State::MASTER_WRITE;
+    _info.status.error = Error::NONE;
 
     //Copy transfer info
     _info.data = (uint8_t*) data;
@@ -178,7 +181,7 @@ Result TWI::MasterWrite(uint32_t address,  InternalAddress internalAddress, void
     _twi->TWI_IADR = TWI_IADR_IADR(internalAddress.value);
 
     //Set master mode
-    _twi->TWI_CR |= TWI_CR_MSEN | TWI_CR_SVDIS;
+    _twi->TWI_CR = TWI_CR_MSEN | TWI_CR_SVDIS;
 
     if (dataCount > 1)
     {
@@ -186,19 +189,13 @@ Result TWI::MasterWrite(uint32_t address,  InternalAddress internalAddress, void
         _twi->TWI_TPR = (uint32_t) data;
         _twi->TWI_TCR = dataCount - 1;
 
-        //Enable DMA channel and interrupt
+        //Enable DMA channel and interrupts
         _twi->TWI_PTCR = TWI_PTCR_TXTEN;
-        _twi->TWI_IER = TWI_IER_ENDTX | TWI_IER_NACK | TWI_IER_ARBLST;
+        _twi->TWI_IER = TWI_IER_ENDTX | TWI_IER_TXCOMP | TWI_IER_NACK | TWI_IER_ARBLST;
     }
     else
     {
-        //Load data
-        _twi->TWI_THR = ((uint8_t*) data)[0];
-
-        //Send stop command
-        _twi->TWI_CR = TWI_CR_STOP;
-
-        //Enable transmit holding register ready interrupt
+        //Enable transmit interrupts
         _twi->TWI_IER = TWI_IER_TXRDY | TWI_IER_NACK | TWI_IER_ARBLST;
     }
 
@@ -216,8 +213,12 @@ Result TWI::MasterRead(uint32_t address, InternalAddress internalAddress, void *
     if (_info.status.state > State::IDLE)
         return DRIVER_ERROR_BUSY;
 
+    if (dataCount == 0)
+        return DRIVER_ERROR_PARAMETER;
+
     //Set status to master transmit
     _info.status.state = State::MASTER_READ;
+    _info.status.error = Error::NONE;
 
     //Copy transfer info
     _info.data = (uint8_t*) data;
@@ -226,10 +227,12 @@ Result TWI::MasterRead(uint32_t address, InternalAddress internalAddress, void *
 
     //Set slave device address
     _twi->TWI_MMR = TWI_MMR_DADR(address) | TWI_MMR_MREAD | TWI_MMR_IADRSZ(internalAddress.byteCount);
-    _twi->TWI_IADR = TWI_IADR_IADR(internalAddress.value);
+
+    if (internalAddress.byteCount)
+        _twi->TWI_IADR = TWI_IADR_IADR(internalAddress.value);
 
     //Set master mode
-    _twi->TWI_CR |= TWI_CR_MSEN | TWI_CR_SVDIS;
+    _twi->TWI_CR = TWI_CR_MSEN | TWI_CR_SVDIS;
 
     if (dataCount > 2)
     {
@@ -265,32 +268,6 @@ uint32_t TWI::GetDataCount() const
     return _info.bytesTransfered;
 }
 
-//int32_t ARM_I2Cx_Control(uint32_t control, uint32_t arg)
-//{
-//    switch (control)
-//    {
-//    case ARM_I2C_OWN_ADDRESS:
-//        if (arg & (ARM_I2C_ADDRESS_10BIT || ARM_I2C_ADDRESS_GC))
-//            return ARM_DRIVER_ERROR_UNSUPPORTED;
-//
-//        res->twi->TWI_SMR = TWI_SMR_SADR(arg);
-//        break;
-//
-//    case ARM_I2C_BUS_CLEAR:
-//        return ARM_DRIVER_ERROR_UNSUPPORTED;
-//        break;
-//
-//    case ARM_I2C_ABORT_TRANSFER:
-//        return ARM_DRIVER_ERROR_UNSUPPORTED;
-//        break;
-//
-//    default:
-//        return ARM_DRIVER_ERROR_UNSUPPORTED;
-//    }
-//
-//    return ARM_DRIVER_OK;
-//}
-
 TWI::Status TWI::GetStatus() const
 {
     return _info.status;
@@ -298,42 +275,68 @@ TWI::Status TWI::GetStatus() const
 
 void TWI::Handler() const
 {
-    if (_twi->TWI_SR & TWI_SR_TXRDY)
-    {
-        //Disable interrupt
-        _twi->TWI_IDR = TWI_IDR_TXRDY;
-
-        _info.bytesTransfered = _info.dataCnt;
-
-        //Update state
-        _info.status.state = State::IDLE;
-
-        //Raise transfer complete event
-        if (_info.signalEvent)
-            _info.signalEvent(Event::TRANSFER_DONE);
-
-    }
-    else if (_twi->TWI_SR & TWI_SR_ENDTX)
+    const uint32_t status = _twi->TWI_SR;
+    if (status & TWI_SR_ENDTX)
     {
         //Disable DMA channel
         _twi->TWI_PTCR = TWI_PTCR_TXTDIS;
 
-        //Send last byte
-        _twi->TWI_THR = _info.data[_info.dataCnt - 1];
-
-        _info.bytesTransfered = _info.dataCnt - 1;
+        _info.bytesTransfered = _info.dataCnt - 2;
 
         //Disable DMA interrupt
         _twi->TWI_IDR = TWI_IDR_ENDTX;
 
-        //Enable transfer ready interrupt
+        //Enable transmit holding register ready interrupt
         _twi->TWI_IER = TWI_IER_TXRDY;
+
+    }
+    else if (status & TWI_SR_TXRDY)
+    {
+        //Disable transmit ready interrupt
+        _twi->TWI_IDR = TWI_IDR_TXRDY;
+
+        //Send last byte
+        _info.bytesTransfered = _info.dataCnt - 1;
+        _twi->TWI_THR = _info.data[_info.bytesTransfered];
 
         //Send stop bit
         _twi->TWI_CR = TWI_CR_STOP;
 
+        //Enable transmission completion interrupt
+        _twi->TWI_IER = TWI_IER_TXCOMP;
     }
-    else if (_twi->TWI_SR & TWI_SR_ENDRX)
+    else if (status & TWI_SR_TXCOMP)
+    {
+        Event event;
+
+        //Disable interrupts
+        _twi->TWI_IDR = TWI_IDR_TXCOMP | TWI_IDR_ARBLST | TWI_IDR_NACK;
+
+        if (status & TWI_SR_ARBLST)
+        {
+            _info.status.error = Error::ARBITRATION_LOST;
+            event = Event::ARBITRATION_LOST;
+        }
+        else if (status & TWI_SR_NACK)
+        {
+            _info.status.error = Error::NOT_ACKNOWLEDGE;
+            event = Event::NOT_ACKNOWLEDGE;
+        }
+        else
+        {
+            event = Event::TRANSFER_DONE;
+            _info.bytesTransfered = _info.dataCnt;
+        }
+
+        //Raise event
+        if (_info.signalEvent)
+            _info.signalEvent(event);
+
+        //Update state
+        _info.status.state = State::IDLE;
+
+    }
+    else if (status & TWI_SR_ENDRX)
     {
         //Disable DMA channel
         _twi->TWI_PTCR = TWI_PTCR_RXTDIS;
@@ -341,7 +344,7 @@ void TWI::Handler() const
         //Set number of bytes read
         _info.bytesTransfered = _info.dataCnt - 2;
     }
-    else if (_twi->TWI_SR & TWI_SR_RXRDY)
+    else if (status & TWI_SR_RXRDY)
     {
         if (_info.bytesTransfered == _info.dataCnt - 2)
         {
@@ -365,5 +368,32 @@ void TWI::Handler() const
                 _info.signalEvent(Event::TRANSFER_DONE);
         }
 
+    }
+    else if (status & TWI_SR_NACK)
+    {
+        //Disable interrupts
+        _twi->TWI_IDR = TWI_IDR_ARBLST | TWI_IDR_ENDRX | TWI_IDR_ENDTX | TWI_IDR_NACK | TWI_IDR_RXRDY | TWI_IDR_TXRDY;
+
+        //Set state back to idle and set not acknowledge error
+        _info.status.state = State::IDLE;
+        _info.status.error = Error::NOT_ACKNOWLEDGE;
+
+        //Raise event not acknowledge
+        if (_info.signalEvent)
+            _info.signalEvent(Event::NOT_ACKNOWLEDGE);
+
+    }
+    else if (status & TWI_SR_ARBLST)
+    {
+        //Disable interrupts
+        _twi->TWI_IDR = TWI_IDR_ARBLST | TWI_IDR_ENDRX | TWI_IDR_ENDTX | TWI_IDR_NACK | TWI_IDR_RXRDY | TWI_IDR_TXRDY;
+
+        //Set state back to idle and set not acknowledge error
+        _info.status.state = State::IDLE;
+        _info.status.error = Error::ARBITRATION_LOST;
+
+        //Raise event not acknowledge
+        if (_info.signalEvent)
+            _info.signalEvent(Event::ARBITRATION_LOST);
     }
 }
