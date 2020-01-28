@@ -61,6 +61,7 @@
 		<Cpp>
 			<Add option="-fno-exceptions" />
 			<Add option="-fno-rtti" />
+			<Add option="-std=c++14" />
 			<Add option="-fdata-sections" />
 			<Add option="-ffunction-sections" />
 			<Add option="-mlong-calls" />
@@ -107,18 +108,19 @@
 			<Option compilerVar="CC" />
 		</Unit>
 		<Unit filename="include\SDCard.h" />
-		<Unit filename="src\main.c">
+		<Unit filename="src\main.cpp">
 			<Option compilerVar="CC" />
 		</Unit>
 		<Unit filename="src\SDCard.c">
 			<Option compilerVar="CC" />
 		</Unit>
-		<Unit filename="system\Driver_I2C.c">
-			<Option compilerVar="CC" />
-		</Unit>
 		<Unit filename="system\Driver_MCI.c">
 			<Option compilerVar="CC" />
 		</Unit>
+		<Unit filename="system\Driver_TWI.cpp">
+			<Option compilerVar="CC" />
+		</Unit>
+		<Unit filename="system\Driver_TWI.h" />
 		<Unit filename="system\Driver_USART.c">
 			<Option compilerVar="CC" />
 		</Unit>

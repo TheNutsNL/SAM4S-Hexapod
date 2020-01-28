@@ -13,6 +13,8 @@
 #include "FreeRTOS.h"
 #include "task.h"
 
+#include "Driver_TWI.h"
+
 #define LED_PIO PIOC
 #define LED_PIN PIO_PC23
 
@@ -20,8 +22,11 @@
 #define TASK_PRIORITY_SERIAL    (tskIDLE_PRIORITY + 2)
 #define TASK_PRIORITY_SD_CARD   (tskIDLE_PRIORITY + 3)
 
+using namespace System::Driver;
+
 //extern ARM_DRIVER_MCI   Driver_MCI;
 //extern ARM_DRIVER_USART Driver_USART1;
+extern TWI Driver_TWI0;
 
 volatile uint8_t isTXBusy;
 
@@ -41,6 +46,8 @@ static void Task_Blink(void *param);
 int main(void)
 {
     SystemInit();
+
+    Driver_TWI0.Initialize(0);
 
     xTaskCreate(Task_Blink, "Blink", configMINIMAL_STACK_SIZE, NULL, TASK_PRIORITY_BLINK, NULL);
     //xTaskCreate(Task_Serial, "Serial", configMINIMAL_STACK_SIZE, NULL, TASK_PRIORITY_SERIAL, NULL);
@@ -97,8 +104,12 @@ void Task_Blink(void *param)
 //    }
 //}
 
-void vApplicationIdleHook(void)
+extern "C"
 {
-    __WFI();
-}
+    void vApplicationIdleHook(void)
+    {
+        __WFI();
+    }
+    }
+
 

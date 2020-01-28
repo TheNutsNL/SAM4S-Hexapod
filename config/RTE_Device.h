@@ -1,8 +1,8 @@
 #ifndef RTE_DEVICE_H_INCLUDED
 #define RTE_DEVICE_H_INCLUDED
 
-#define RTE_I2C0        1
-#define RTE_I2C1        0
+#define RTE_TWI0        1
+#define RTE_TWI1        0
 
 #define RTE_UART0       0
 #define RTE_UART1       1
