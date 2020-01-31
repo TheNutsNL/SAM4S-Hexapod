@@ -166,7 +166,10 @@ Result TWI::MasterWrite(uint32_t address,  InternalAddress internalAddress, void
     //Check if TWI is not busy
     if (_info.status.state > State::IDLE)
         return DRIVER_ERROR_BUSY;
-
+    
+    if (dataCount == 0)
+        return DRIVER_ERROR_PARAMETER;
+    
     //Set status to master transmit
     _info.status.state = State::MASTER_WRITE;
     _info.status.error = Error::NONE;
@@ -281,7 +284,7 @@ void TWI::Handler() const
         //Disable DMA channel
         _twi->TWI_PTCR = TWI_PTCR_TXTDIS;
 
-        _info.bytesTransfered = _info.dataCnt - 2;
+        _info.bytesTransfered = _info.dataCnt - 1;
 
         //Disable DMA interrupt
         _twi->TWI_IDR = TWI_IDR_ENDTX;
@@ -296,14 +299,17 @@ void TWI::Handler() const
         _twi->TWI_IDR = TWI_IDR_TXRDY;
 
         //Send last byte
-        _info.bytesTransfered = _info.dataCnt - 1;
         _twi->TWI_THR = _info.data[_info.bytesTransfered];
+        _info.bytesTransfered++;
 
-        //Send stop bit
-        _twi->TWI_CR = TWI_CR_STOP;
+        if (_info.bytesTransfered == _info.dataCnt)
+        {
+            //Send stop bit
+            _twi->TWI_CR = TWI_CR_STOP;
 
-        //Enable transmission completion interrupt
-        _twi->TWI_IER = TWI_IER_TXCOMP;
+            //Enable transmission completion interrupt
+            _twi->TWI_IER = TWI_IER_TXCOMP;
+        }
     }
     else if (status & TWI_SR_TXCOMP)
     {
@@ -367,33 +373,5 @@ void TWI::Handler() const
             if (_info.signalEvent)
                 _info.signalEvent(Event::TRANSFER_DONE);
         }
-
-    }
-    else if (status & TWI_SR_NACK)
-    {
-        //Disable interrupts
-        _twi->TWI_IDR = TWI_IDR_ARBLST | TWI_IDR_ENDRX | TWI_IDR_ENDTX | TWI_IDR_NACK | TWI_IDR_RXRDY | TWI_IDR_TXRDY;
-
-        //Set state back to idle and set not acknowledge error
-        _info.status.state = State::IDLE;
-        _info.status.error = Error::NOT_ACKNOWLEDGE;
-
-        //Raise event not acknowledge
-        if (_info.signalEvent)
-            _info.signalEvent(Event::NOT_ACKNOWLEDGE);
-
-    }
-    else if (status & TWI_SR_ARBLST)
-    {
-        //Disable interrupts
-        _twi->TWI_IDR = TWI_IDR_ARBLST | TWI_IDR_ENDRX | TWI_IDR_ENDTX | TWI_IDR_NACK | TWI_IDR_RXRDY | TWI_IDR_TXRDY;
-
-        //Set state back to idle and set not acknowledge error
-        _info.status.state = State::IDLE;
-        _info.status.error = Error::ARBITRATION_LOST;
-
-        //Raise event not acknowledge
-        if (_info.signalEvent)
-            _info.signalEvent(Event::ARBITRATION_LOST);
     }
 }
