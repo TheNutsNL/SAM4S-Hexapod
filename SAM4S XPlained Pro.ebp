@@ -117,13 +117,13 @@
 		<Unit filename="system\Driver_MCI.c">
 			<Option compilerVar="CC" />
 		</Unit>
-		<Unit filename="system\Driver_TWI.cpp">
-			<Option compilerVar="CC" />
-		</Unit>
-		<Unit filename="system\Driver_TWI.h" />
 		<Unit filename="system\Driver_USART.c">
 			<Option compilerVar="CC" />
 		</Unit>
+		<Unit filename="system\TWI.cpp">
+			<Option compilerVar="CC" />
+		</Unit>
+		<Unit filename="system\TWI.h" />
 		<Extensions>
 			<code_completion />
 			<debugger>

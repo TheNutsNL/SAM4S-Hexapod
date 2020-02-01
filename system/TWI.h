@@ -17,11 +17,11 @@ namespace System
             DRIVER_ERROR_PARAMETER,
         };
 
-        enum PowerState
+        enum class PowerState
         {
-            POWER_OFF,
-            POWER_LOW,
-            POWER_FULL,
+            OFF,
+            LOW,
+            FULL,
 
         };
 
@@ -50,28 +50,30 @@ namespace System
         class TWI
         {
         public:
-            enum class State : uint8_t
+            enum class DeviceState
             {
                 UNINITIALIZED = 0,
                 INITIALIZED = 1,
                 IDLE = 2,
-                MASTER_WRITE = 3,
-                MASTER_READ = 4,
             };
 
 
-            enum class Error : uint8_t
+            struct TransferStatus
             {
-                NONE = 0,
-                ARBITRATION_LOST = 1,
-                NOT_ACKNOWLEDGE = 2,
+                bool busy : 1;
+                bool master : 1;
+                bool read : 1;
+                bool generalCall : 1;
+                bool arbitrationLost : 1;
+                bool notAcknowledge : 1;
             };
 
-            struct Status
+            struct TransferInfo
             {
-                State state : 8;
-                Error error : 8;
-                //bool generalCall : 1;
+                uint8_t *data;
+                uint16_t dataCount;
+                uint16_t bytesTransfered;
+                TransferStatus status;
             };
 
             enum class Event
@@ -93,34 +95,27 @@ namespace System
 
             typedef void (*SignalEvent) (Event event);
 
-            constexpr TWI(Twi *const twi, const IRQn_Type irq, const PeripheralPin pinSDA, const PeripheralPin pinSCL) : _twi(twi), _irq(irq), _pinSDA(_pinSDA), _pinSCL(pinSCL), _info() {}
+            constexpr TWI(Twi *const twi, const IRQn_Type irq, const PeripheralPin pinSDA, const PeripheralPin pinSCL) : _twi(twi), _irq(irq), _pinSDA(_pinSDA), _pinSCL(pinSCL), _state(DeviceState::UNINITIALIZED), _transfer({0}), _signalEvent(0) {}
             Result Initialize(SignalEvent signalEvent) const;
             Result PowerControl(PowerState state) const;
             Result SetSpeed(uint32_t baud) const ;
             uint32_t GetDataCount() const;
-            Status GetStatus() const;
+            TransferStatus GetStatus() const;
             Result MasterWrite(uint32_t address, InternalAddress internalAddress, void *data, uint16_t dataCount) const;
             Result MasterRead(uint32_t address, InternalAddress internalAddress, void *data, uint16_t dataCount) const;
             Result Uninitialize() const;
 
             void Handler() const;
         private:
-            typedef struct
-            {
-                SignalEvent signalEvent;
-                Status status;
-                uint8_t *data;
-                uint32_t dataCnt;
-                uint32_t bytesTransfered;
-                bool isPending;
-            } TWI_Info;
 
             Twi *const _twi;
             const IRQn_Type _irq;
             const PeripheralPin _pinSDA;
             const PeripheralPin _pinSCL;
 
-            mutable TWI_Info _info;
+            mutable DeviceState _state;
+            mutable TransferInfo _transfer;
+            mutable SignalEvent _signalEvent;
 
             constexpr uint32_t CalculateSpeedSetting(uint32_t baud);
         };

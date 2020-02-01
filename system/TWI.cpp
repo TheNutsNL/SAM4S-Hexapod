@@ -1,9 +1,5 @@
-#include "Driver_TWI.h"
+#include "TWI.h"
 #include "RTE_Device.h"
-
-#define TWI_FLAG_INITIALIZED   (1 << 0)
-#define TWI_FLAG_POWERED       (1 << 1)
-#define TWI_FLAG_ENABLED       (1 << 2)
 
 using namespace System::Driver;
 
@@ -69,15 +65,15 @@ extern "C"
 
 Result TWI::Initialize(SignalEvent signalEvent) const
 {
-    if (_info.status.state == State::UNINITIALIZED)
+    if (_state == DeviceState::UNINITIALIZED)
     {
         _pinSDA.Enable();
         _pinSCL.Enable();
 
         //Register event
-        _info.signalEvent = signalEvent;
+        _signalEvent = signalEvent;
 
-        _info.status.state = State::INITIALIZED;
+        _state = DeviceState::INITIALIZED;
     }
 
     return DRIVER_OK;
@@ -85,18 +81,17 @@ Result TWI::Initialize(SignalEvent signalEvent) const
 
 Result TWI::Uninitialize() const
 {
-    if (_info.status.state == State::INITIALIZED)
+    if (_state == DeviceState::INITIALIZED)
     {
-        if (_info.status.state >= State::IDLE)
-            PowerControl(POWER_OFF);
+        if (_state >= DeviceState::IDLE)
+            PowerControl(PowerState::OFF);
 
         //Return control to pio controller
         _pinSDA.Disable();
         _pinSCL.Disable();
 
         //Set state to uninitialized
-        _info.status.state = State::UNINITIALIZED;
-        _info.status.error = Error::NONE;
+        _state = DeviceState::UNINITIALIZED;
     }
 
     return DRIVER_OK;
@@ -105,13 +100,13 @@ Result TWI::Uninitialize() const
 Result TWI::PowerControl(PowerState state) const
 {
     //Check if driver is initialized
-    if ((_info.status.state == State::UNINITIALIZED))
+    if ((_state == DeviceState::UNINITIALIZED))
         return DRIVER_ERROR;
 
     switch (state)
     {
-    case POWER_OFF:
-        if (_info.status.state >= State::IDLE)
+    case PowerState::OFF:
+        if (_state >= DeviceState::IDLE)
         {
             //Disable IRQ
             NVIC_DisableIRQ(_irq);
@@ -122,12 +117,12 @@ Result TWI::PowerControl(PowerState state) const
             //Disable peripheral clock
             PMC->PMC_PCDR0 = (1 << _irq);
 
-            _info.status.state = State::INITIALIZED;
+            _state = DeviceState::INITIALIZED;
         }
         break;
 
-    case POWER_FULL:
-        if (_info.status.state == State::IDLE)
+    case PowerState::FULL:
+        if (_state == DeviceState::IDLE)
         {
             //Enable peripheral clock
             PMC->PMC_PCER0 = (1 << _irq);
@@ -139,8 +134,8 @@ Result TWI::PowerControl(PowerState state) const
             NVIC_ClearPendingIRQ(_irq);
             NVIC_EnableIRQ(_irq);
 
-            _info.status.state = State::IDLE;
-            _info.status.error = Error::NONE;
+            _state = DeviceState::IDLE;
+            _transfer = {0};
         }
         break;
 
@@ -155,33 +150,40 @@ Result TWI::SetSpeed(uint32_t baud) const
 {
     const uint32_t value = SystemCoreClock / (2 * baud) - 4;;
     _twi->TWI_CWGR = TWI_CWGR_CHDIV(value) | TWI_CWGR_CLDIV(value);
+
+    return Result::DRIVER_OK;
 }
 
 Result TWI::MasterWrite(uint32_t address,  InternalAddress internalAddress, void *data, uint16_t dataCount) const
 {
     //Check if TWI is powered
-    if (_info.status.state < State::IDLE)
+    if (_state != DeviceState::IDLE)
         return DRIVER_ERROR;
 
     //Check if TWI is not busy
-    if (_info.status.state > State::IDLE)
+    if (_transfer.status.busy)
         return DRIVER_ERROR_BUSY;
-    
+
     if (dataCount == 0)
         return DRIVER_ERROR_PARAMETER;
-    
+
     //Set status to master transmit
-    _info.status.state = State::MASTER_WRITE;
-    _info.status.error = Error::NONE;
+    _transfer.status.master = 1;
+    _transfer.status.read = 0;
+    _transfer.status.generalCall = 0;
+    _transfer.status.arbitrationLost = 0;
+    _transfer.status.notAcknowledge = 0;
 
     //Copy transfer info
-    _info.data = (uint8_t*) data;
-    _info.dataCnt = dataCount;
-    _info.bytesTransfered = 0;
+    _transfer.data = (uint8_t*) data;
+    _transfer.dataCount = dataCount;
+    _transfer.bytesTransfered = 0;
 
     //Set slave device and address
     _twi->TWI_MMR = TWI_MMR_DADR(address) | TWI_MMR_IADRSZ(internalAddress.byteCount);
-    _twi->TWI_IADR = TWI_IADR_IADR(internalAddress.value);
+
+    if (internalAddress.byteCount)
+        _twi->TWI_IADR = TWI_IADR_IADR(internalAddress.value);
 
     //Set master mode
     _twi->TWI_CR = TWI_CR_MSEN | TWI_CR_SVDIS;
@@ -209,24 +211,28 @@ Result TWI::MasterWrite(uint32_t address,  InternalAddress internalAddress, void
 Result TWI::MasterRead(uint32_t address, InternalAddress internalAddress, void *data, uint16_t dataCount) const
 {
     //Check if I2C is powered
-    if (_info.status.state < State::IDLE)
+    if (_state != DeviceState::IDLE)
         return DRIVER_ERROR;
 
     //Check if I2C is not busy
-    if (_info.status.state > State::IDLE)
+    if (_transfer.status.busy)
         return DRIVER_ERROR_BUSY;
 
     if (dataCount == 0)
         return DRIVER_ERROR_PARAMETER;
 
-    //Set status to master transmit
-    _info.status.state = State::MASTER_READ;
-    _info.status.error = Error::NONE;
+    //Set status to master read
+    _transfer.status.busy = 1;
+    _transfer.status.master = 1;
+    _transfer.status.read = 1;
+    _transfer.status.generalCall = 0;
+    _transfer.status.arbitrationLost = 0;
+    _transfer.status.notAcknowledge = 0;
 
     //Copy transfer info
-    _info.data = (uint8_t*) data;
-    _info.dataCnt = dataCount;
-    _info.bytesTransfered = 0;
+    _transfer.data = (uint8_t*) data;
+    _transfer.dataCount = dataCount;
+    _transfer.bytesTransfered = 0;
 
     //Set slave device address
     _twi->TWI_MMR = TWI_MMR_DADR(address) | TWI_MMR_MREAD | TWI_MMR_IADRSZ(internalAddress.byteCount);
@@ -245,7 +251,7 @@ Result TWI::MasterRead(uint32_t address, InternalAddress internalAddress, void *
 
         //Enable DMA channel and interrupt
         _twi->TWI_PTCR = TWI_PTCR_RXTEN;
-        _twi->TWI_IER = TWI_IER_ENDRX | TWI_IER_NACK | TWI_IER_ARBLST;
+        _twi->TWI_IER = TWI_IER_ENDRX | TWI_IER_TXCOMP | TWI_IER_NACK | TWI_IER_ARBLST;
 
         //Start transfer
         _twi->TWI_CR = TWI_CR_START;
@@ -260,7 +266,7 @@ Result TWI::MasterRead(uint32_t address, InternalAddress internalAddress, void *
             _twi->TWI_CR = TWI_CR_START;
 
         //Enable interrupts
-        _twi->TWI_IER = TWI_IER_RXRDY | TWI_IER_NACK | TWI_IER_ARBLST;
+        _twi->TWI_IER = TWI_IER_RXRDY | TWI_IER_TXCOMP | TWI_IER_NACK | TWI_IER_ARBLST;
     }
 
     return DRIVER_OK;
@@ -268,12 +274,12 @@ Result TWI::MasterRead(uint32_t address, InternalAddress internalAddress, void *
 
 uint32_t TWI::GetDataCount() const
 {
-    return _info.bytesTransfered;
+    return _transfer.bytesTransfered;
 }
 
-TWI::Status TWI::GetStatus() const
+TWI::TransferStatus TWI::GetStatus() const
 {
-    return _info.status;
+    return _transfer.status;
 }
 
 void TWI::Handler() const
@@ -284,7 +290,7 @@ void TWI::Handler() const
         //Disable DMA channel
         _twi->TWI_PTCR = TWI_PTCR_TXTDIS;
 
-        _info.bytesTransfered = _info.dataCnt - 1;
+        _transfer.bytesTransfered = _transfer.dataCount - 1;
 
         //Disable DMA interrupt
         _twi->TWI_IDR = TWI_IDR_ENDTX;
@@ -299,16 +305,45 @@ void TWI::Handler() const
         _twi->TWI_IDR = TWI_IDR_TXRDY;
 
         //Send last byte
-        _twi->TWI_THR = _info.data[_info.bytesTransfered];
-        _info.bytesTransfered++;
+        _twi->TWI_THR = _transfer.data[_transfer.bytesTransfered++];
 
-        if (_info.bytesTransfered == _info.dataCnt)
+        if (_transfer.bytesTransfered == _transfer.dataCount)
         {
             //Send stop bit
             _twi->TWI_CR = TWI_CR_STOP;
 
             //Enable transmission completion interrupt
             _twi->TWI_IER = TWI_IER_TXCOMP;
+        }
+    }
+    else if (status & TWI_SR_ENDRX)
+    {
+        //Disable DMA channel
+        _twi->TWI_PTCR = TWI_PTCR_RXTDIS;
+
+        //Set number of bytes read
+        _transfer.bytesTransfered = _transfer.dataCount - 2;
+
+        //Disable DMA interrupt
+        _twi->TWI_IDR = TWI_IDR_ENDRX;
+
+        //Enable Receive Holding Register Ready
+        _twi->TWI_IER = TWI_IER_RXRDY;
+    }
+    else if (status & TWI_SR_RXRDY)
+    {
+        _transfer.data[_transfer.bytesTransfered++] = _twi->TWI_RHR;
+
+        //Set stop bit on penultimate byte
+        if (_transfer.bytesTransfered == _transfer.dataCount - 1)
+        {
+
+            _twi->TWI_CR = TWI_CR_STOP;
+        }
+        else if (_transfer.bytesTransfered == _transfer.dataCount)
+        {
+            //Disable Receive Holding Register Ready interrupt
+            _twi->TWI_IDR = TWI_IDR_RXRDY;
         }
     }
     else if (status & TWI_SR_TXCOMP)
@@ -320,58 +355,24 @@ void TWI::Handler() const
 
         if (status & TWI_SR_ARBLST)
         {
-            _info.status.error = Error::ARBITRATION_LOST;
+            _transfer.status.arbitrationLost = 1;
             event = Event::ARBITRATION_LOST;
         }
         else if (status & TWI_SR_NACK)
         {
-            _info.status.error = Error::NOT_ACKNOWLEDGE;
+            _transfer.status.notAcknowledge = 1;
             event = Event::NOT_ACKNOWLEDGE;
         }
         else
         {
             event = Event::TRANSFER_DONE;
-            _info.bytesTransfered = _info.dataCnt;
         }
+
+        //Remove busy flag
+        _transfer.status.busy = 0;
 
         //Raise event
-        if (_info.signalEvent)
-            _info.signalEvent(event);
-
-        //Update state
-        _info.status.state = State::IDLE;
-
-    }
-    else if (status & TWI_SR_ENDRX)
-    {
-        //Disable DMA channel
-        _twi->TWI_PTCR = TWI_PTCR_RXTDIS;
-
-        //Set number of bytes read
-        _info.bytesTransfered = _info.dataCnt - 2;
-    }
-    else if (status & TWI_SR_RXRDY)
-    {
-        if (_info.bytesTransfered == _info.dataCnt - 2)
-        {
-            //Set stop bit
-            _twi->TWI_CR = TWI_CR_STOP;
-
-            //Read penultimate byte
-            _info.data[_info.dataCnt - 2] = _twi->TWI_RHR;
-            _info.bytesTransfered = _info.dataCnt - 1;
-        }
-        else
-        {
-            //Read last byte
-            _info.data[_info.dataCnt - 1] = _twi->TWI_RHR;
-            _info.bytesTransfered = _info.dataCnt;
-
-            _info.status.state = State::IDLE;
-
-            //Raise transfer complete event
-            if (_info.signalEvent)
-                _info.signalEvent(Event::TRANSFER_DONE);
-        }
+        if (_signalEvent)
+            _signalEvent(event);
     }
 }

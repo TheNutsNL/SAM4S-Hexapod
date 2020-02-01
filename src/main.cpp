@@ -13,7 +13,7 @@
 #include "FreeRTOS.h"
 #include "task.h"
 
-#include "Driver_TWI.h"
+#include "TWI.h"
 
 #define LED_PIO PIOC
 #define LED_PIN PIO_PC23
@@ -47,7 +47,7 @@ int main(void)
 {
     SystemInit();
 
-    Driver_TWI0.Initialize(0);
+
 
     xTaskCreate(Task_Blink, "Blink", configMINIMAL_STACK_SIZE, NULL, TASK_PRIORITY_BLINK, NULL);
     //xTaskCreate(Task_Serial, "Serial", configMINIMAL_STACK_SIZE, NULL, TASK_PRIORITY_SERIAL, NULL);
@@ -82,6 +82,27 @@ void Task_Blink(void *param)
         vTaskDelay(500 / portTICK_PERIOD_MS);
         LED_PIO->PIO_CODR = LED_PIN;
     }
+}
+
+
+void Task_Servos (void *param)
+{
+    uint8_t data[1];
+    Driver_TWI0.Initialize(0);
+    Driver_TWI0.PowerControl(PowerState::FULL);
+    Driver_TWI0.SetSpeed(100000);
+
+    while(1)
+    {
+        Driver_TWI0.MasterRead(0x40, {0x00, 1}, data, 1);
+
+        //Wait for transfer to complete
+        while (Driver_TWI0.GetStatus.busy);
+
+        vTaskDelay(1000 / portTICK_PERIOD_MS);
+    }
+
+
 }
 
 
