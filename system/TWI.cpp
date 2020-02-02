@@ -5,43 +5,6 @@ using namespace System::Driver;
 
 extern uint32_t SystemCoreClock;
 
-void PeripheralPin::Enable() const
-{
-    switch (_peripheral)
-    {
-    case PeripheralA:
-        _pio->PIO_ABCDSR[0] &= ~_pin;
-        _pio->PIO_ABCDSR[1] &= ~_pin;
-        break;
-
-    case PeripheralB:
-        _pio->PIO_ABCDSR[0] |= ~_pin;
-        _pio->PIO_ABCDSR[1] &= ~_pin;
-        break;
-
-    case PeripheralC:
-        _pio->PIO_ABCDSR[0] &= ~_pin;
-        _pio->PIO_ABCDSR[1] |= _pin;
-        break;
-
-    case PeripheralD:
-        _pio->PIO_ABCDSR[0] |= _pin;
-        _pio->PIO_ABCDSR[1] |= _pin;
-        break;
-    }
-
-    //Set pin control to peripheral
-    _pio->PIO_PDR = _pin;
-
-}
-
-void PeripheralPin::Disable() const
-{
-    //Set pin control to pio controller
-    _pio->PIO_PER = _pin;
-
-}
-
 //Setup TWI0
 #if (RTE_TWI0)
 TWI Driver_TWI0(TWI0, TWI0_IRQn, PeripheralPin(PeripheralA, PIOA, PIO_PA3A_TWD0), PeripheralPin(PeripheralA, PIOA, PIO_PA4A_TWCK0));
@@ -83,7 +46,7 @@ Result TWI::Uninitialize() const
 {
     if (_state == DeviceState::INITIALIZED)
     {
-        if (_state >= DeviceState::IDLE)
+        if (_state == DeviceState::POWERED)
             PowerControl(PowerState::OFF);
 
         //Return control to pio controller
@@ -106,7 +69,7 @@ Result TWI::PowerControl(PowerState state) const
     switch (state)
     {
     case PowerState::OFF:
-        if (_state >= DeviceState::IDLE)
+        if (_state == DeviceState::POWERED)
         {
             //Disable IRQ
             NVIC_DisableIRQ(_irq);
@@ -122,7 +85,7 @@ Result TWI::PowerControl(PowerState state) const
         break;
 
     case PowerState::FULL:
-        if (_state == DeviceState::IDLE)
+        if (_state == DeviceState::INITIALIZED)
         {
             //Enable peripheral clock
             PMC->PMC_PCER0 = (1 << _irq);
@@ -134,8 +97,12 @@ Result TWI::PowerControl(PowerState state) const
             NVIC_ClearPendingIRQ(_irq);
             NVIC_EnableIRQ(_irq);
 
-            _state = DeviceState::IDLE;
-            _transfer = {0};
+            _state = DeviceState::POWERED;
+            _transferInfo.data = 0;
+            _transferInfo.dataCount = 0;
+            _transferInfo.bytesTransfered = 0;
+
+            _transferStatus.reg = 0;
         }
         break;
 
@@ -154,30 +121,26 @@ Result TWI::SetSpeed(uint32_t baud) const
     return Result::DRIVER_OK;
 }
 
-Result TWI::MasterWrite(uint32_t address,  InternalAddress internalAddress, void *data, uint16_t dataCount) const
+Result TWI::MasterWrite(uint32_t address,  InternalAddress internalAddress, const void *data, uint16_t dataCount) const
 {
     //Check if TWI is powered
-    if (_state != DeviceState::IDLE)
+    if (_state != DeviceState::POWERED)
         return DRIVER_ERROR;
 
     //Check if TWI is not busy
-    if (_transfer.status.busy)
+    if (_transferStatus.busy)
         return DRIVER_ERROR_BUSY;
 
     if (dataCount == 0)
         return DRIVER_ERROR_PARAMETER;
 
     //Set status to master transmit
-    _transfer.status.master = 1;
-    _transfer.status.read = 0;
-    _transfer.status.generalCall = 0;
-    _transfer.status.arbitrationLost = 0;
-    _transfer.status.notAcknowledge = 0;
+    _transferStatus.reg = 0x1;
 
     //Copy transfer info
-    _transfer.data = (uint8_t*) data;
-    _transfer.dataCount = dataCount;
-    _transfer.bytesTransfered = 0;
+    _transferInfo.data = (uint8_t*) data;
+    _transferInfo.dataCount = dataCount;
+    _transferInfo.bytesTransfered = 0;
 
     //Set slave device and address
     _twi->TWI_MMR = TWI_MMR_DADR(address) | TWI_MMR_IADRSZ(internalAddress.byteCount);
@@ -211,28 +174,23 @@ Result TWI::MasterWrite(uint32_t address,  InternalAddress internalAddress, void
 Result TWI::MasterRead(uint32_t address, InternalAddress internalAddress, void *data, uint16_t dataCount) const
 {
     //Check if I2C is powered
-    if (_state != DeviceState::IDLE)
+    if (_state != DeviceState::POWERED)
         return DRIVER_ERROR;
 
     //Check if I2C is not busy
-    if (_transfer.status.busy)
+    if (_transferStatus.busy)
         return DRIVER_ERROR_BUSY;
 
     if (dataCount == 0)
         return DRIVER_ERROR_PARAMETER;
 
     //Set status to master read
-    _transfer.status.busy = 1;
-    _transfer.status.master = 1;
-    _transfer.status.read = 1;
-    _transfer.status.generalCall = 0;
-    _transfer.status.arbitrationLost = 0;
-    _transfer.status.notAcknowledge = 0;
+    _transferStatus.reg = 0x7;
 
     //Copy transfer info
-    _transfer.data = (uint8_t*) data;
-    _transfer.dataCount = dataCount;
-    _transfer.bytesTransfered = 0;
+    _transferInfo.data = (uint8_t*) data;
+    _transferInfo.dataCount = dataCount;
+    _transferInfo.bytesTransfered = 0;
 
     //Set slave device address
     _twi->TWI_MMR = TWI_MMR_DADR(address) | TWI_MMR_MREAD | TWI_MMR_IADRSZ(internalAddress.byteCount);
@@ -274,23 +232,25 @@ Result TWI::MasterRead(uint32_t address, InternalAddress internalAddress, void *
 
 uint32_t TWI::GetDataCount() const
 {
-    return _transfer.bytesTransfered;
+    return _transferInfo.bytesTransfered;
 }
 
-TWI::TransferStatus TWI::GetStatus() const
+const TWI::TransferStatus TWI::GetStatus() const
 {
-    return _transfer.status;
+    TWI::TransferStatus retVal;
+    retVal.reg = _transferStatus.reg;
+    return retVal;
 }
 
 void TWI::Handler() const
 {
-    const uint32_t status = _twi->TWI_SR;
+    const uint32_t status = _twi->TWI_SR & _twi->TWI_IMR;
     if (status & TWI_SR_ENDTX)
     {
         //Disable DMA channel
         _twi->TWI_PTCR = TWI_PTCR_TXTDIS;
 
-        _transfer.bytesTransfered = _transfer.dataCount - 1;
+        _transferInfo.bytesTransfered = _transferInfo.dataCount - 1;
 
         //Disable DMA interrupt
         _twi->TWI_IDR = TWI_IDR_ENDTX;
@@ -305,9 +265,9 @@ void TWI::Handler() const
         _twi->TWI_IDR = TWI_IDR_TXRDY;
 
         //Send last byte
-        _twi->TWI_THR = _transfer.data[_transfer.bytesTransfered++];
+        _twi->TWI_THR = _transferInfo.data[_transferInfo.bytesTransfered++];
 
-        if (_transfer.bytesTransfered == _transfer.dataCount)
+        if (_transferInfo.bytesTransfered == _transferInfo.dataCount)
         {
             //Send stop bit
             _twi->TWI_CR = TWI_CR_STOP;
@@ -322,7 +282,7 @@ void TWI::Handler() const
         _twi->TWI_PTCR = TWI_PTCR_RXTDIS;
 
         //Set number of bytes read
-        _transfer.bytesTransfered = _transfer.dataCount - 2;
+        _transferInfo.bytesTransfered = _transferInfo.dataCount - 2;
 
         //Disable DMA interrupt
         _twi->TWI_IDR = TWI_IDR_ENDRX;
@@ -332,15 +292,15 @@ void TWI::Handler() const
     }
     else if (status & TWI_SR_RXRDY)
     {
-        _transfer.data[_transfer.bytesTransfered++] = _twi->TWI_RHR;
+        _transferInfo.data[_transferInfo.bytesTransfered++] = _twi->TWI_RHR;
 
         //Set stop bit on penultimate byte
-        if (_transfer.bytesTransfered == _transfer.dataCount - 1)
+        if (_transferInfo.bytesTransfered == _transferInfo.dataCount - 1)
         {
 
             _twi->TWI_CR = TWI_CR_STOP;
         }
-        else if (_transfer.bytesTransfered == _transfer.dataCount)
+        else if (_transferInfo.bytesTransfered == _transferInfo.dataCount)
         {
             //Disable Receive Holding Register Ready interrupt
             _twi->TWI_IDR = TWI_IDR_RXRDY;
@@ -351,16 +311,16 @@ void TWI::Handler() const
         Event event;
 
         //Disable interrupts
-        _twi->TWI_IDR = TWI_IDR_TXCOMP | TWI_IDR_ARBLST | TWI_IDR_NACK;
+        _twi->TWI_IDR = TWI_SR_ENDTX | TWI_SR_ENDRX | TWI_SR_TXRDY | TWI_IDR_RXRDY | TWI_IDR_TXCOMP | TWI_IDR_ARBLST | TWI_IDR_NACK;
 
         if (status & TWI_SR_ARBLST)
         {
-            _transfer.status.arbitrationLost = 1;
+            _transferStatus.arbitrationLost = 1;
             event = Event::ARBITRATION_LOST;
         }
         else if (status & TWI_SR_NACK)
         {
-            _transfer.status.notAcknowledge = 1;
+            _transferStatus.notAcknowledge = 1;
             event = Event::NOT_ACKNOWLEDGE;
         }
         else
@@ -369,7 +329,7 @@ void TWI::Handler() const
         }
 
         //Remove busy flag
-        _transfer.status.busy = 0;
+        _transferStatus.busy = 0;
 
         //Raise event
         if (_signalEvent)

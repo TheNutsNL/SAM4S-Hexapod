@@ -14,11 +14,16 @@
 #include "task.h"
 
 #include "TWI.h"
+#include "PCA9685.h"
 
 #define LED_PIO PIOC
 #define LED_PIN PIO_PC23
 
+#define PWM_OE_PIO PIOA
+#define PWM_OE_PIN PIO_PA24
+
 #define TASK_PRIORITY_BLINK     (tskIDLE_PRIORITY + 1)
+#define TASK_PRIORITY_SERVOS    (tskIDLE_PRIORITY + 2)
 #define TASK_PRIORITY_SERIAL    (tskIDLE_PRIORITY + 2)
 #define TASK_PRIORITY_SD_CARD   (tskIDLE_PRIORITY + 3)
 
@@ -31,6 +36,7 @@ extern TWI Driver_TWI0;
 volatile uint8_t isTXBusy;
 
 static void Task_Blink(void *param);
+static void Task_Servos(void *param);
 //static void Task_Serial(void *param);
 
 //void USART1_event (uint32_t event)
@@ -50,6 +56,7 @@ int main(void)
 
 
     xTaskCreate(Task_Blink, "Blink", configMINIMAL_STACK_SIZE, NULL, TASK_PRIORITY_BLINK, NULL);
+    xTaskCreate(Task_Servos, "Servos", configMINIMAL_STACK_SIZE, NULL, TASK_PRIORITY_SERVOS, NULL);
     //xTaskCreate(Task_Serial, "Serial", configMINIMAL_STACK_SIZE, NULL, TASK_PRIORITY_SERIAL, NULL);
 
     vTaskStartScheduler();
@@ -87,19 +94,45 @@ void Task_Blink(void *param)
 
 void Task_Servos (void *param)
 {
-    uint8_t data[1];
+    uint16_t value = 300;
+    uint16_t delta = 1;
+
+    //Setup TWI
     Driver_TWI0.Initialize(0);
     Driver_TWI0.PowerControl(PowerState::FULL);
     Driver_TWI0.SetSpeed(100000);
 
+    //Setup pwm output enable pin
+    GPIOPin pinOE(PWM_OE_PIO, PWM_OE_PIN);
+    pinOE.SetHigh();
+    pinOE.OutputEnable();
+
+    //Setup pwm driver
+    Device::PCA9685 pwmDriver(Driver_TWI0, 0x40);
+    pwmDriver.SetPrescaler(124);
+    pwmDriver.Sleep(false);
+
+    //Enable pwm output
+    pinOE.SetLow();
+
+    pwmDriver.SetTimeOff(Device::PCA9685::Channel::LED1, 200);
+    pwmDriver.SetTimeOff(Device::PCA9685::Channel::LED2, 300);
+    pwmDriver.SetTimeOff(Device::PCA9685::Channel::LED3, 400);
+
     while(1)
     {
-        Driver_TWI0.MasterRead(0x40, {0x00, 1}, data, 1);
+        //Calculate servo position
+        if (value >= 400)
+            delta = -1;
+        else if (value <= 200)
+            delta = 1;
 
-        //Wait for transfer to complete
-        while (Driver_TWI0.GetStatus.busy);
+        value += delta;
 
-        vTaskDelay(1000 / portTICK_PERIOD_MS);
+        //Set servo position
+        pwmDriver.SetTimeOff(Device::PCA9685::Channel::LED0, value);
+
+        vTaskDelay(20 / portTICK_PERIOD_MS);
     }
 
 

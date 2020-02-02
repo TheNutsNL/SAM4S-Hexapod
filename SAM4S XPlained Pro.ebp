@@ -17,6 +17,10 @@
 					<Add option="-O0" />
 					<Add option="-g2" />
 				</Compiler>
+				<Cpp>
+					<Add option="-O0" />
+					<Add option="-g2" />
+				</Cpp>
 				<Assembler>
 					<Add option="--gdwarf-2" />
 				</Assembler>
@@ -62,6 +66,7 @@
 			<Add option="-fno-exceptions" />
 			<Add option="-fno-rtti" />
 			<Add option="-std=c++14" />
+			<Add option="-Wall" />
 			<Add option="-fdata-sections" />
 			<Add option="-ffunction-sections" />
 			<Add option="-mlong-calls" />
@@ -82,6 +87,7 @@
 		<Unit filename="docs\Atmel-11100-32-bit Cortex-M4-Microcontroller-SAM4S_Datasheet.pdf" />
 		<Unit filename="docs\atmel-42075-sam4s-xplained-pro_user-guide.pdf" />
 		<Unit filename="docs\Part1_Physical_Layer_Simplified_Specification_Ver6.00.pdf" />
+		<Unit filename="docs\PCA9685.pdf" />
 		<Unit filename="FreeRTOS\event_groups.c">
 			<Option compilerVar="CC" />
 		</Unit>
@@ -107,8 +113,12 @@
 		<Unit filename="FreeRTOS\timers.c">
 			<Option compilerVar="CC" />
 		</Unit>
+		<Unit filename="include\PCA9685.h" />
 		<Unit filename="include\SDCard.h" />
 		<Unit filename="src\main.cpp">
+			<Option compilerVar="CC" />
+		</Unit>
+		<Unit filename="src\PCA9685.cpp">
 			<Option compilerVar="CC" />
 		</Unit>
 		<Unit filename="src\SDCard.c">
@@ -120,6 +130,10 @@
 		<Unit filename="system\Driver_USART.c">
 			<Option compilerVar="CC" />
 		</Unit>
+		<Unit filename="system\IO.cpp">
+			<Option compilerVar="CC" />
+		</Unit>
+		<Unit filename="system\IO.h" />
 		<Unit filename="system\TWI.cpp">
 			<Option compilerVar="CC" />
 		</Unit>
