@@ -31,7 +31,7 @@ union MODE2
     };
 };
 
-void PCA9685::Reset()
+void PCA9685::Reset() const
 {
     MODE1 mode1;
 
@@ -96,7 +96,7 @@ uint8_t PCA9685::CalculatePrescaler(float frequency) const
     return (float) _clockFrequency / (4096 * frequency) - 1;;
 }
 
-void PCA9685::SetTimeOn(Channel channel, uint16_t value)
+void PCA9685::SetTimeOn(Channel channel, uint16_t value) const
 {
     if (value > 4095)
         value = 4095;
@@ -104,7 +104,7 @@ void PCA9685::SetTimeOn(Channel channel, uint16_t value)
     Write((Register) ((uint32_t) Register::LED0_ON_L + 4 * (uint32_t) channel), &value, 2);
 }
 
-void PCA9685::SetTimeOff(Channel channel, uint16_t value)
+void PCA9685::SetTimeOff(Channel channel, uint16_t value) const
 {
     if (value > 4095)
         value = 4095;
