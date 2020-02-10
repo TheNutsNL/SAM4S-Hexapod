@@ -29,12 +29,12 @@ namespace Device
         };
 
         constexpr PCA9685(System::Driver::TWI &twi, uint8_t address) :  _twi(&twi), _address(address) { Reset(); }
-        void Reset();
+        void Reset() const;
         void Sleep(bool enable) const;
         void SetPrescaler(uint8_t prescaler) const;
         uint8_t CalculatePrescaler(float frequency) const;
-        void SetTimeOn(Channel channel, uint16_t value);
-        void SetTimeOff(Channel channel, uint16_t value);
+        void SetTimeOn(Channel channel, uint16_t value) const;
+        void SetTimeOff(Channel channel, uint16_t value) const;
     private:
         enum class Register
         {
